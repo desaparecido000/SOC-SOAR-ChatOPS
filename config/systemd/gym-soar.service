@@ -1,0 +1,19 @@
+[Unit]
+Description=SOAR executor 4A - auto-healing de contenedores (Grafana webhook)
+Documentation=file:///root/soar/soar_executor.py
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 -u /root/soar/soar_executor.py --live
+Restart=on-failure
+RestartSec=5
+# El secreto NO va aqui: se lee de /root/.gym-creds/soar-webhook-secret (chmod 600)
+# Estado persistente: /root/soar/state.json   Auditoria: /root/soar/soar-audit.log
+StandardOutput=append:/root/soar/executor.log
+StandardError=append:/root/soar/executor.log
+
+[Install]
+WantedBy=multi-user.target

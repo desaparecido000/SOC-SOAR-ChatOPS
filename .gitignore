@@ -1,0 +1,44 @@
+# Secrets and credentials
+.gym-creds/
+*.env
+.env
+.env.*
+secrets/
+*.key
+*.pem
+
+# Runtime state
+state.json
+soar-audit.log
+executor.log
+chatops.log
+*.lock
+*.pid
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Backups and snapshots
+*.bak
+*.old
+*~
+releases/
+
+# Evidence with real data (sanitize before committing)
+docs/evidence/*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+*.tmp

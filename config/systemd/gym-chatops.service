@@ -1,0 +1,21 @@
+[Unit]
+Description=SOAR ChatOps 4E - bot interactivo Telegram (solo lectura + /unban)
+Documentation=file:///root/soar/soar_bot.py
+After=network-online.target gym-soar.service
+Wants=network-online.target
+# No requiere gym-soar.service para arrancar (solo lectura de artefactos),
+# pero se ordena despues por coherencia operativa.
+After=gym-soar.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 -u /root/soar/soar_bot.py
+Restart=on-failure
+RestartSec=10
+# Credenciales via /root/.gym-creds/telegram (600). NUNCA en esta unit.
+StandardOutput=append:/root/soar/chatops.log
+StandardError=append:/root/soar/chatops.log
+
+[Install]
+WantedBy=multi-user.target

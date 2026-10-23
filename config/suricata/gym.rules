@@ -1,0 +1,102 @@
+# =============================================================================
+# gym.rules - Reglas propias de deteccion (previa)
+#
+# Las 8 originales se perdieron cuando Suricata fue desinstalado (/etc/suricata
+# no existe). Los logs historicos en /opt/monitoring/suricata-eve/eve.json.1.gz
+# conservan el signature_id, el nombre de la firma, el payload exacto que la
+# disparo y la cantidad de alertas. De ahi se reconstruyeron.
+#
+# *** DIRECCION DE LAS REGLAS ***
+# Al reconstruir, la primera version quedo INVERTIDA (decia $HOME_NET ->
+# $ATACANTE). El log historico dice lo contrario:
+#     "src_ip": "192.168.100.100"  (atacante)
+#     "dest_ip": "192.168.100.10"  (lab-server)
+# El ataque va DEL atacante HACIA el lab. Con la direccion invertida las
+# reglas NUNCA disparan, y un IDS que no detecta nada parece un IDS que
+# funciona. Es el mismo error que hace un WAF configurado al reves.
+#
+# Solo 3 firmas aqui para probar el pipeline end-to-end.
+# Las otras 5 se escriben en la Fase 3 (esa parte es el aprendizaje).
+#
+# Formato:  accion proto  dir  ->  cuerpo   sid:rev
+#   sid: identificador UNICO por regla. Si dos reglas comparten sid, Suricata
+#        descarta la segunda en silencio al arrancar.
+# =============================================================================
+
+# --- 2000001: Escaneo de puertos SYN (reconocimiento) -----------------------
+# Evidencia historica: 4186 alertas. La regla mas ruidosa del set.
+# El umbral (20 en 60s) es lo que separa "escaneo" de "navegacion normal":
+# un usuario abre muchas paginas en un minuto y genera varios SYN, pero no 20
+# a destinos distintos.
+alert tcp !$OBJETIVOS any -> $OBJETIVOS any (msg:"GYM: escaneo SYN (flags S sin ACK)"; flow:stateless; flags:S; threshold:type both, track by_src, count 20, seconds 60; classtype:attempted-recon; sid:2000001; rev:1;)
+
+# --- 2000003 / 2000009: User-Agent sospechoso ------------------------------
+# El user-agent delata la herramienta. Es la deteccion mas barata: no requiere
+# analisis, solo leer un header.
+# Evidencia historica: 25 alertas con user-agent sqlmap y nikto.
+#
+# Dos reglas y no una porque el sid debe ser unico. Historicamente compartian
+# el mismo texto de mensaje; si se intenta compartir el sid, Suricata loguea
+# 'Duplicate signature' y deja una de las dos fuera.
+alert http !$OBJETIVOS any -> $OBJETIVOS $HTTP_PORTS (msg:"GYM: user-agent sospechoso (sqlmap/nikto)"; flow:established,to_server; http.user_agent; content:"sqlmap"; nocase; classtype:attempted-recon; sid:2000003; rev:1;)
+alert http !$OBJETIVOS any -> $OBJETIVOS $HTTP_PORTS (msg:"GYM: user-agent sospechoso (sqlmap/nikto)"; flow:established,to_server; http.user_agent; content:"nikto"; nocase; classtype:attempted-recon; sid:2000009; rev:1;)
+
+# --- 2000005: Inyeccion SQL en la URI --------------------------------------
+# Evidencia historica: payload /product?id=1%20union%20select%201,2,3--
+alert http !$OBJETIVOS any -> $OBJETIVOS $HTTP_PORTS (msg:"GYM: posible SQL Injection en URI"; flow:established,to_server; http.uri; content:"union"; nocase; content:"select"; nocase; classtype:web-application-attack; sid:2000005; rev:1;)
+
+# ==========================================================================
+# PENDIENTES -> MIGRADAS (2026-10-18).
+#
+# Esas 5 firmas estaban IMPLEMENTADAS pero en el conjunto de lab-server
+# (otro motor, otros sids). Ahora viven arriba, en 2000010-2000014.
+# ==========================================================================
+
+# =============================================================================
+# PERIMETRO - deteccion de barrido hacia el host publico.
+#
+# Que problema resuelve: hoy Suricata solo escucha interfaces Docker internas, y
+# UFW registra el trafico bloqueado sin clasificarlo. Los conjuntos son disjuntos
+# y no se pueden correlacionar (ver informe-ejercicio-03, H-A).
+#
+# Que NO es esta regla: NO detecta compromiso. Los puertos 23/3389/5900 no estan
+# expuestos en este host (solo 80 y 443). Un barrido hacia ellos es
+# reconnaissance (T1595), nunca una via de acceso. La severity se mantiene baja
+# a proposito para no inflar el panel con ruido de fondo de internet.
+#
+# Umbral: 15 SYNs a puertos de barrido en 60 s desde una misma IP. Por debajo es
+# trafico normal de un scanner que recorre el espacio de puertos; por encima,
+# un barrido dirigido contra este host especifico.
+# =============================================================================
+alert tcp $EXTERNAL_NET any -> $PERIM_HOST $SCAN_PORTS (msg:"GYM-PERIM: barrido de puertos IoT/RDP hacia el host publico desde internet"; flow:stateless; flags:S; threshold:type both, track by_src, count 15, seconds 60; classtype:network-scan; reference:url,attack.mitre.org/techniques/T1595/; sid:2000020; rev:1;)
+
+# Variante para el perimetro REALMENTE expuesto (80/443): aqui un escaneo de
+# firmas HTTP si es relevante, porque el servicio responde. Umbral mas alto
+# para no penalizar scanners que solo comprueban la respuesta del puerto.
+alert tcp $EXTERNAL_NET any -> $PERIM_HOST $WEB_PORTS (msg:"GYM-PERIM: actividad HTTP desde internet hacia servicio expuesto"; flow:established,to_server; threshold:type both, track by_src, count 40, seconds 60; classtype:web-application-activity; reference:url,attack.mitre.org/techniques/T1595/; sid:2000021; rev:1;)
+
+# ===========================================================================
+# MIGRADAS DESDE lab-server (2026-10-18) - un solo escritor en eve.json.
+#
+# Estas 5 firmas vivian en /var/lib/suricata/rules/local.rules de lab-server
+# (segundo motor Suricata escribiendo en el MISMO eve.json). Sids renumerados
+# al bloque 2000010-2000014 porque el original choca con reglas existentes:
+#   2000001 (acceso /admin)  -> 2000010   gym 2000001 = escaneo SYN
+#   2000002 (ICMP sondeo)    -> 2000011   sin choque
+#   2000003 (SSH 2222)       -> 2000012   gym 2000003 = user-agent
+#   2000006 (LFI)            -> 2000013   sin choque
+#   2000008 (brute /admin)   -> 2000014   sin choque
+#
+# NO migradas (gym.rules ya las cubre):
+#   2000004 escaneo SYN  -> ya en 2000001 con umbral 20/60s
+#   2000005 SQLi         -> ya en 2000005 (sid referenciado por el contrato)
+#   2000007 user-agent   -> ya en 2000003 y 2000009
+#
+# Copiadas BYTE A BYTE salvo el sid: mensaje, direccion y umbral intactos.
+# ===========================================================================
+
+alert http 192.168.100.100 any -> 192.168.100.10 8080 (msg:"GYM: acceso web a /admin desde atacante"; flow:to_server; http.uri; content:"/admin"; classtype:web-application-attack; sid: 2000010; rev:1;)
+alert icmp any any -> any any (msg:"GYM: ICMP Echo Request (posible sondeo)"; itype:8; classtype:network-scan; sid: 2000011; rev:1;)
+alert tcp any any -> 192.168.100.10 2222 (msg:"GYM: conexion al SSH personalizado 2222"; flow:to_server; classtype:attempted-recon; sid: 2000012; rev:1;)
+alert http 192.168.100.100 any -> 192.168.100.10 8080 (msg:"GYM: posible Local File Include (LFI)"; flow:to_server; http.uri; content:"../"; pcre:"/\.\.(\x2f|\x5c)/"; classtype:web-application-attack; sid: 2000013; rev:1;)
+alert http 192.168.100.100 any -> 192.168.100.10 8080 (msg:"GYM: posible brute-force HTTP sobre /admin"; flow:to_server; http.uri; content:"/admin"; detection_filter: track by_src, count 5, seconds 30; classtype:attempted-user; sid: 2000014; rev:4;)

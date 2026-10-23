@@ -1,0 +1,85 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: gym-telegram
+    receivers:
+      - uid: gym-alertas-telegram
+        type: telegram
+        settings:
+          # chatid LITERAL a proposito: Grafana 11 (drone/envsubst) descarta
+          # las comillas al expandir ${VAR} y convierte el id numerico en int,
+          # provocando: "cannot unmarshal number into Go struct field
+          # Config.chatid of type string". Solo el token se expande.
+          # El token viaja por VARIABLE DE ENTORNO y Grafana lo
+          # expande al arrancar: nunca se escribe en este fichero.
+          # MEDIDO el 17/Oct/2026: con el token bajo 'secureSettings'
+          # Grafana 11.2.2 ABORRA el arranque con 'could not find Bot
+          # Token in settings'. Probadas y rechazadas las cuatro
+          # formas de secureSettings: $VAR, ${VAR} y __from: file.
+          chatid: "${TELEGRAM_CHAT_ID}"
+          bottoken: "${TELEGRAM_BOT_TOKEN}"
+        disableResolveMessage: false
+  - orgId: 1
+    name: gym-alertas-webhook
+    receivers:
+      - uid: gymwebhook01
+        type: webhook
+        settings:
+          # SOAR Fase 4A: receptor = soar_executor.py en el host,
+          # escuchando SOLO en la IP del bridge monitoring_mon-net.
+          # Autenticacion Bearer por variable de entorno (mismo mecanismo
+          # de expansion que el token de Telegram, ver nota arriba).
+          # El secreto vive en /root/.gym-creds/soar-webhook-secret y en
+          # /opt/monitoring/.env (SOAR_WEBHOOK_SECRET), nunca aqui.
+          # Regla UFW dedicada: allow from 172.19.0.0/16 to
+          # 172.19.0.1 port 9099 proto tcp.
+          url: http://172.19.0.1:9099/hook
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: ${SOAR_WEBHOOK_SECRET}
+          autoResolve: true
+          uploadImage: false
+        disableResolveMessage: false
+policies:
+  - orgId: 1
+    receiver: gym-telegram
+    group_by: ['grafana_folder', 'alertname']
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      # SOAR Fase 4A: la caida de contenedores tambien va al webhook.
+      # continue: true OBLIGATORIO: sin el, Grafana corta la evaluacion
+      # en la primera coincidencia y Telegram dejaria de recibir la
+      # alerta (medido el 18/Oct/2026, trampa de rutas hijas).
+      - receiver: gym-alertas-webhook
+        group_by: ['grafana_folder', 'alertname', 'name']
+        matchers:
+          - alertname = "GYM - Contenedor caido"
+        continue: true
+      # SOAR Fase 4B: anomalia de protocolo por src_ip -> misma rama
+      # webhook, pero agrupando TAMBIEN por src_ip: cada IP atacante es un
+      # incidente independiente (sin fusionar en un unico grupo) y el
+      # payload del webhook lleva labels.src_ip accionable por G4-IP.
+      # continue: true igual que la ruta 1: Telegram sigue recibiendo.
+      - receiver: gym-alertas-webhook
+        group_by: ['grafana_folder', 'alertname', 'src_ip']
+        matchers:
+          - alertname = "GYM - SOAR Anomalia Protocolo"
+        continue: true
+      # SOAR Fase 4C: T-3-ENTROPIA-01 (escaneo L7 por entropia de
+      # recursos) -> misma rama webhook, agrupando por src_ip para que
+      # cada IP escaner sea un incidente independiente y el payload
+      # lleve labels.src_ip accionable por G4-IP.
+      - receiver: gym-alertas-webhook
+        group_by: ['grafana_folder', 'alertname', 'src_ip']
+        matchers:
+          - alertname = "GYM - SOAR Entropia URI"
+        continue: true
+      # SOAR Fase 4C: T-3-WAF-01 (exploits de aplicacion por firmas del
+      # IDS) -> identica rama y agrupacion; mismo contrato de corte dual.
+      - receiver: gym-alertas-webhook
+        group_by: ['grafana_folder', 'alertname', 'src_ip']
+        matchers:
+          - alertname = "GYM - SOAR Suricata WAF"
+        continue: true

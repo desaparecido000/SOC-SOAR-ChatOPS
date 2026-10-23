@@ -1,0 +1,705 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: INFRA-VPS
+    folder: Alertas GYM
+    interval: 1m
+    rules:
+      # ---------- espacio en disco ----------
+      - uid: gym-disco-casi-lleno
+        title: "GYM - Disco casi lleno"
+        condition: C
+        annotations:
+          summary: 'Disco raiz al {{ $values.R.Value | printf "%.1f" }}% usado'
+          description: 'Umbral 80%. Liberar espacio en / antes de llegar al 90%.'
+        labels:
+          severity: warning
+        isPaused: false
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: '100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})'
+              intervalMs: 60000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [80]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+
+      - uid: gym-disco-critico
+        title: "GYM - Disco critico"
+        condition: C
+        annotations:
+          summary: 'Disco raiz al {{ $values.R.Value | printf "%.1f" }}% usado (critico)'
+          description: 'Umbral 90%. Riesgo de que Docker y Loki fallen al escribir.'
+        labels:
+          severity: critical
+        isPaused: false
+        noDataState: Alerting
+        execErrState: Error
+        for: 1m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: '100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})'
+              intervalMs: 60000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [90]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+
+      # ---------- memoria ----------
+      - uid: gym-memoria-casi-agotada
+        title: "GYM - Memoria casi agotada"
+        condition: C
+        annotations:
+          summary: 'Memoria al {{ $values.R.Value | printf "%.1f" }}% usada'
+          description: 'Menos de 15% de RAM disponible. Revisar contenedores que crecen sin limite.'
+        labels:
+          severity: warning
+        isPaused: false
+        noDataState: Alerting
+        execErrState: Error
+        for: 10m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: '100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)'
+              intervalMs: 60000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [85]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+
+      # ---------- contenedores (mode dropNN: una alerta por contenedor) ----------
+      - uid: gym-contenedor-caido
+        title: "GYM - Contenedor caido"
+        condition: C
+        annotations:
+          summary: 'Contenedor {{ $labels.name }} NO esta corriendo'
+          description: 'Lo cubre la restart policy. Si sigue caido tras 2m, investigarlo.'
+        labels:
+          severity: critical
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: 'gym_container_up'
+              intervalMs: 30000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 30000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 30000
+              maxDataPoints: 43200
+
+      - uid: gym-contenedor-unhealthy
+        title: "GYM - Contenedor unhealthy persistente"
+        condition: C
+        annotations:
+          summary: 'Contenedor {{ $labels.name }} lleva 10m unhealthy'
+          description: 'El autoheal reinicia a los 3 chequeos (6m). Si sigue asi, el reinicio no lo arregla.'
+        labels:
+          severity: warning
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: 'gym_container_health == 0'
+              intervalMs: 30000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 30000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [0.5]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 30000
+              maxDataPoints: 43200
+
+      # ---------- backups ----------
+      - uid: gym-backup-vencido
+        title: "GYM - Backup vencido"
+        condition: C
+        annotations:
+          summary: 'Ultimo backup hace {{ $values.R.Value | printf "%.1f" }}h'
+          description: 'El backup deberia ser diario. El timer es Persistent, asi que un VPS apagado no lo salta.'
+        labels:
+          severity: warning
+        isPaused: false
+        noDataState: Alerting
+        execErrState: Error
+        for: 5m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: 'gym_backup_age_seconds / 3600'
+              intervalMs: 60000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [26]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+
+      - uid: gym-backup-fallido
+        title: "GYM - Nunca se hizo un backup valido"
+        condition: C
+        annotations:
+          summary: 'No hay backup exitoso registrado'
+          description: 'El script no ha dejado rastro de "Backup OK" y no existe ningun archivo en /root/monitoring-backups.'
+        labels:
+          severity: critical
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: 'gym_backup_ok == 0'
+              intervalMs: 60000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [0.5]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+
+      # ---------- host ----------
+      - uid: gym-host-reiniciado
+        title: "GYM - El host se reinicio"
+        condition: C
+        annotations:
+          summary: 'Cambio el arranque del host en la ultima hora'
+          description: 'Reinicio manual o caida del VPS. Si fue inesperado, revisar journalctl -b -1.'
+        labels:
+          severity: info
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: 'changes(gym_host_boot_time_seconds[1h])'
+              intervalMs: 60000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: max
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 60000
+              maxDataPoints: 43200
+
+      - uid: gym-exporter-caido
+        title: "GYM - Node exporter o cadvisor caidos"
+        condition: C
+        annotations:
+          summary: 'Target {{ $labels.job }} de Prometheus esta down'
+          description: 'Sin node-exporter no hay metricas de host. Sin cadvisor no hay metricas de contenedores.'
+        labels:
+          severity: warning
+        isPaused: false
+        noDataState: Alerting
+        execErrState: Error
+        for: 3m
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: PBFA97CFB590B2093
+            model:
+              refId: A
+              format: time_series
+              expr: 'up{job=~"node|cadvisor"}'
+              intervalMs: 30000
+              maxDataPoints: 43200
+              datasource:
+                type: prometheus
+                uid: PBFA97CFB590B2093
+          - refId: R
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: R
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 30000
+              maxDataPoints: 43200
+          - refId: C
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: R
+              conditions:
+                - evaluator:
+                    params: [1]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [C]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 30000
+              maxDataPoints: 43200
+
+      # ---------- autoheal (Loki instant: no necesita reduce) ----------
+      - uid: gym-autoheal-actuo
+        title: "GYM - El autoheal reinicio un contenedor"
+        condition: B
+        annotations:
+          summary: 'Autoheal reinicio un contenedor ({{ $labels.value }} detecciones)'
+          description: 'El contenedor estuvo unhealthy varios chequeos seguidos.'
+        labels:
+          severity: info
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: 'sum(count_over_time({job="gym-sys"} |= "HEAL" [5m]))'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [B]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              intervalMs: 1000
+              maxDataPoints: 43200

@@ -1,0 +1,350 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: SO-DETECCION
+    folder: Alertas GYM
+    interval: 1m
+    rules:
+      - uid: gym-suricata-alertas
+        title: GYM - Alertas Suricata ultimos 5m
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: 'sum(count_over_time({job="suricata"} | json | event_type="alert" [5m]))'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 0
+                    op: gt
+        for: 1m
+        noDataState: OK
+      - uid: gym-suricata-prioridad
+        title: GYM - Alertas Suricata PRIORIDAD 1-2 (5m)
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: 'sum(count_over_time({job="suricata"} | json | event_type="alert" | alert_severity <= 2 [5m]))'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 0
+                    op: gt
+        for: 0m
+        noDataState: OK
+      - uid: gym-ssh-fallidos
+        title: GYM - Muchos intentos de SSH fallidos (10m)
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: 'sum(count_over_time({job="authlog"} |~ "Failed password|Invalid user|authentication failure" [10m]))'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [5]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 5
+                    op: gt
+        for: 2m
+        noDataState: OK
+      - uid: gym-fail2ban-bans
+        title: GYM - Bans fail2ban recientes (30m)
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: 'sum(count_over_time({job="fail2ban"} |~ "Ban" [30m]))'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 0
+                    op: gt
+        for: 0m
+        noDataState: OK
+      # SOAR Fase 4B.2 - regla dimensional por src_ip (T-3-PROTOCOLO-01).
+      # Gate 0 LOGQL (2026-10-19): las tres subqueries validadas contra
+      # http://127.0.0.1:3100/loki/api/v1/query -> HTTP 200 status=success.
+      # Semantica de umbrales copiada del arnes (Condition.satisfied() =
+      # observed > threshold ESTRICTO): volumen > 10, malformadas > 5
+      # (hacen falta 6) y fraccion_malformada > 0.5.
+      # Sin count_over_time el agregador sobre [5m] da parse error de Loki;
+      # |~ FILTRA el status (con espacio tras la comilla de cierre), | regexp
+      # SOLO EXTRAE src_ip (dos | regexp encadenados, nunca 2 grupos juntos).
+      - uid: gym-soar-anomalia-protocolo
+        title: GYM - SOAR Anomalia Protocolo
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: '(sum by (src_ip) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` |~ `" (400|444) ` [5m])) / sum by (src_ip) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` [5m])) > 0.5) and (sum by (src_ip) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` [5m])) > 10) and (sum by (src_ip) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` |~ `" (400|444) ` [5m])) > 5)'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0.5]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 0.5
+                    op: gt
+        for: 1m
+        noDataState: OK
+        annotations:
+          summary: 'Anomalia de protocolo desde {{ $labels.src_ip }}'
+          description: '400/444 mayoritarias en 5m (fraccion > 0.5, volumen > 10, malformadas > 5). Rama SOAR 4B en IP_DRY_RUN.'
+        labels:
+          severity: warning
+      # Fase 4C - T-3-ENTROPIA-01 promocionado al plano de corte por IP.
+      # Escaneo L7 por ENTROPIA DE RECURSOS: rutas distintas / peticiones
+      # en [5m], dimensional by (src_ip). El cociente se calcula EN LOKI
+      # (labels identicos {src_ip} en ambos operandos: MEDIDO viable en
+      # Loki 3.3), no en SSE de Grafana. Triple guarda: entropia > 0.10
+      # (umbral del contrato: humano 0.0139 vs ffuf 1.0) AND volumen > 60
+      # (sin ella, 1 peticion a 1 ruta da entropia 1.0) AND rutas > 6
+      # (un enlace roto o un favicon no es un escaner). El numerador usa
+      # sum by (src_ip) de un count by (src_ip, path): la forma que el
+      # contrato documenta como UNICA valida (3 variantes con 'path' en
+      # el numerador devolvieron 0 series sin error).
+      - uid: gym-soar-entropia-uri
+        title: GYM - SOAR Entropia URI
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: '(sum by (src_ip) (count by (src_ip, path) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` | regexp `"[A-Z]+ (?P<path>[^? ]+)` [5m]))) / sum by (src_ip) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` [5m])) > 0.10) and on (src_ip) (sum by (src_ip) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` [5m])) > 60) and on (src_ip) (sum by (src_ip) (count by (src_ip, path) (count_over_time({job="nginx", filename="/opt/infra/nginx/logs/access.log"} | regexp `^(?P<src_ip>[0-9a-fA-F.:]+) ` | regexp `"[A-Z]+ (?P<path>[^? ]+)` [5m]))) > 6)'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 0
+                    op: gt
+        for: 1m
+        noDataState: OK
+        annotations:
+          summary: 'Escaneo L7 por entropia de recursos desde {{ $labels.src_ip }}'
+          description: 'T-3-ENTROPIA-01: entropia rutas/peticiones > 0.10 AND volumen > 60 AND rutas distintas > 6 en [5m]. Promocionado al corte dual por IP (rama 4C).'
+        labels:
+          severity: warning
+      # Fase 4C - T-3-WAF-01 promocionado al plano de corte por IP.
+      # Exploits de aplicacion por firmas del IDS Suricata, dedup por
+      # flow_id (Suricata reemite la misma deteccion por umbral: contar
+      # eventos mide el umbral, no al atacante). Dimensional by (src_ip).
+      # Guardas: flujos_waf >= 2 AND fraccion_waf > 0.5. El matcher de
+      # firma lleva comodines en ambos extremos (los matchers de label en
+      # LogQL van ANCLADOS: alert_sig=~"SQL" exige el valor exacto y da 0).
+      - uid: gym-soar-suricata-waf
+        title: GYM - SOAR Suricata WAF
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: P8E80F9AEF21F6940
+            model:
+              refId: A
+              expr: '(count by (src_ip) (count by (src_ip, flow_id) (count_over_time({job="suricata", filename="/var/log/suricata/eve.json"} | json | event_type="alert" | alert_sig=~`.*SQL.*|.*user-agent.*` [5m]))) >= 2) and on (src_ip) ((count by (src_ip) (count by (src_ip, flow_id) (count_over_time({job="suricata", filename="/var/log/suricata/eve.json"} | json | event_type="alert" | alert_sig=~`.*SQL.*|.*user-agent.*` [5m]))) / count by (src_ip) (count by (src_ip, flow_id) (count_over_time({job="suricata", filename="/var/log/suricata/eve.json"} | json | event_type="alert" [5m])))) > 0.5)'
+              queryType: instant
+              datasource:
+                type: loki
+                uid: P8E80F9AEF21F6940
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+                  operator:
+                    type: and
+              settings:
+                mode: custom
+                thresholds:
+                  - value: 0
+                    op: gt
+        for: 1m
+        noDataState: OK
+        annotations:
+          summary: 'Exploit de aplicacion (firmas WAF) desde {{ $labels.src_ip }}'
+          description: 'T-3-WAF-01: flujos_waf >= 2 AND fraccion_waf > 0.5 en [5m] (dedup por flow_id). Promocionado al corte dual por IP (rama 4C).'
+        labels:
+          severity: warning
